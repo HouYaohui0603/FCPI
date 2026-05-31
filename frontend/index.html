@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>智慧农林无人机虫害巡检终端</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <div id="mainView" class="app-view">
+      <header class="app-header">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <h1>智慧农林无人机虫害巡检终端</h1>
+            <p>任务规划 · 自主巡检 · AI 检测 · 智能报告</p>
+          </div>
+        </div>
+        <div class="status-strip">
+          <span id="stateBadge">Idle</span>
+          <span id="routeStatus">航线未生成</span>
+          <span id="detectStatus">等待影像</span>
+        </div>
+      </header>
+
+      <nav id="workflowSteps" class="workflow-steps" aria-label="系统流程"></nav>
+
+      <nav class="page-tabs" aria-label="功能分区">
+        <button id="tabWorkbench" type="button" data-page="workbench" class="active">巡检工作台</button>
+        <button id="tabAi" type="button" data-page="ai">AI 与预警</button>
+        <button id="tabReport" type="button" data-page="report">报告中心</button>
+      </nav>
+
+      <main class="page-stage">
+        <section id="pageWorkbench" class="page-panel active" data-page="workbench">
+          <div class="mission-layout">
+            <section class="map-panel">
+              <div class="panel-header">
+                <div>
+                  <h2 id="mapTitle">任务地图</h2>
+                  <p id="mapSubtitle">等待任务开始</p>
+                </div>
+                <div class="map-legend">
+                  <span><i class="line-swatch"></i>飞行轨迹</span>
+                  <span><i class="warn-swatch"></i>异常点</span>
+                </div>
+              </div>
+
+              <div id="canvasShell" class="canvas-shell">
+                <canvas id="missionCanvas" aria-label="任务地图画布"></canvas>
+                <div class="map-chip top-left">
+                  <strong id="selectionState">未选择区域</strong>
+                  <span id="cursorCoord">x=0.0m, y=0.0m</span>
+                </div>
+                <div id="configPanel" class="planning-card" hidden>
+                  <div>
+                    <strong>任务区域已保存</strong>
+                    <span id="selectionSize">0m x 0m</span>
+                  </div>
+                  <label>
+                    飞行高度
+                    <input id="altitudeInput" type="number" min="1" step="1" />
+                    <em>m</em>
+                  </label>
+                  <label>
+                    定点间距
+                    <input id="spacingInput" type="number" min="2" step="1" />
+                    <em>m</em>
+                  </label>
+                  <button id="confirmPlanBtn" class="primary" type="button">确认任务</button>
+                </div>
+              </div>
+            </section>
+
+            <aside class="side-panel workbench-side">
+              <section class="control-card">
+                <div class="card-title">
+                  <h2>任务规划</h2>
+                  <span id="methodLabel">Ours</span>
+                </div>
+                <label class="select-field">
+                  <span>检测模型</span>
+                  <select id="detectionModelSelect"></select>
+                </label>
+                <label class="select-field">
+                  <span>大模型模板</span>
+                  <select id="llmModelSelect"></select>
+                </label>
+                <div class="button-grid">
+                  <button id="startBtn" class="primary" type="button">开始规划</button>
+                  <button id="stopBtn" class="danger" type="button" disabled>停止</button>
+                </div>
+              </section>
+
+              <section class="control-card upload-card">
+                <div class="card-title">
+                  <h2>影像回传</h2>
+                </div>
+                <label class="upload-zone" for="fileInput">
+                  <input id="fileInput" type="file" accept="image/*" multiple />
+                  <span>选择巡检照片</span>
+                  <small>按选择顺序绑定 spot 位置</small>
+                </label>
+                <div id="fileQueue" class="file-queue"></div>
+                <button id="detectBtn" class="primary wide" type="button">开始检测</button>
+              </section>
+            </aside>
+          </div>
+        </section>
+
+        <section id="pageAi" class="page-panel" data-page="ai">
+          <div class="ai-layout viz-grid">
+            <section class="control-card analysis-card">
+              <div class="card-title">
+                <h2>分析结果</h2>
+                <span id="riskBadge" class="pill neutral">未生成</span>
+              </div>
+              <div id="analysisCards" class="analysis-list"></div>
+            </section>
+
+            <section class="control-card">
+              <div class="card-title">
+                <h2>风险仪表盘</h2>
+                <span class="pill warn">risk</span>
+              </div>
+              <div id="riskGauge" class="risk-gauge"></div>
+            </section>
+
+            <section class="control-card">
+              <div class="card-title">
+                <h2>虫害类型占比</h2>
+                <span class="pill neutral">type</span>
+              </div>
+              <div id="typeShareChart" class="pie-chart"></div>
+            </section>
+
+            <section class="control-card">
+              <div class="card-title">
+                <h2>空间热力图</h2>
+                <span class="pill danger">200m</span>
+              </div>
+              <div id="heatmapChart" class="heatmap-chart"></div>
+            </section>
+
+            <section class="control-card">
+              <div class="card-title">
+                <h2>Top 异常点</h2>
+                <span class="pill neutral">spot</span>
+              </div>
+              <div id="topRiskList" class="top-risk-bars"></div>
+            </section>
+
+            <section class="control-card">
+              <div class="card-title">
+                <h2>处置优先级</h2>
+                <span id="alertBadge" class="pill neutral">未触发</span>
+              </div>
+              <div id="alertPanel" class="report-text"></div>
+              <div id="priorityList" class="priority-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="pageReport" class="page-panel" data-page="report">
+          <div class="report-layout report-viz-layout">
+            <section class="control-card report-card report-summary-card">
+              <div class="card-title">
+                <h2>检测报告摘要</h2>
+                <span id="reportBadge" class="pill neutral">未生成</span>
+              </div>
+              <div id="reportCards" class="analysis-list compact-list"></div>
+              <div id="reportCharts" class="chart-panel"></div>
+              <div class="button-grid report-actions">
+                <button id="exportWordBtn" class="secondary" type="button">导出 Word</button>
+                <button id="exportPdfBtn" class="secondary" type="button">导出 PDF</button>
+              </div>
+            </section>
+
+            <section class="control-card report-card llm-suggestion-card">
+              <div class="card-title">
+                <h2>大模型输出建议报告</h2>
+                <span id="llmBadge" class="pill neutral">模板</span>
+              </div>
+              <div id="llmSuggestionPanel" class="llm-report"></div>
+            </section>
+
+            <section class="control-card report-card report-reason-card">
+              <div class="card-title">
+                <h2>大模型分析依据</h2>
+                <span class="pill neutral">reason</span>
+              </div>
+              <div id="llmAnalysisPanel" class="report-text"></div>
+            </section>
+
+            <section class="control-card report-card report-small-card">
+              <div id="coverageChart" class="coverage-panel"></div>
+            </section>
+
+            <section class="control-card report-card report-small-card">
+              <div id="trendChart" class="chart-panel"></div>
+            </section>
+
+            <section class="control-card report-card report-small-card">
+              <div id="confidenceChart" class="chart-panel"></div>
+            </section>
+
+            <section class="control-card report-card report-small-card">
+              <div id="ratioChart" class="chart-panel"></div>
+            </section>
+
+            <section class="control-card report-card report-small-card">
+              <div id="modelComparisonChart" class="chart-panel"></div>
+            </section>
+
+            <section class="control-card report-card advanced-line-card">
+              <div id="advancedTrendChart" class="chart-panel advanced-chart"></div>
+            </section>
+
+            <section class="control-card report-card report-small-card">
+              <div id="riskRadarChart" class="chart-panel advanced-chart"></div>
+            </section>
+
+            <section class="control-card report-card report-small-card">
+              <div id="priorityMatrixChart" class="chart-panel advanced-chart"></div>
+            </section>
+
+            <section class="control-card report-card report-small-card">
+              <div id="spatialProjectionChart" class="chart-panel advanced-chart"></div>
+            </section>
+
+            <section class="control-card report-card timeline-full-card">
+              <div id="missionTimelineChart" class="chart-panel advanced-chart"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="detailView" class="app-view detail-view" hidden>
+      <header class="app-header">
+        <button id="backBtn" class="secondary" type="button">返回</button>
+        <div class="detail-heading">
+          <h1 id="detailTitle">异常点详情</h1>
+          <p id="detailSubtitle">图像证据、虫害类别与精准定位</p>
+        </div>
+        <div id="detailMethodTabs" class="method-tabs compact"></div>
+      </header>
+
+      <main class="detail-layout">
+        <section class="evidence-column">
+          <article class="image-frame">
+            <h2>无人机拍摄原图</h2>
+            <div class="image-stage">
+              <img id="detailRawImage" alt="" />
+            </div>
+          </article>
+          <article class="image-frame">
+            <h2>图像分析结果</h2>
+            <div class="image-stage">
+              <img id="detailOutputImage" alt="" />
+            </div>
+          </article>
+        </section>
+
+        <aside class="detail-side">
+          <section class="control-card">
+            <div class="card-title">
+              <h2>详情视图</h2>
+              <span id="detailSeverity" class="pill danger">异常</span>
+            </div>
+            <div id="detailCards" class="analysis-list"></div>
+          </section>
+          <section class="control-card">
+            <div class="card-title">
+              <h2>点位历史趋势</h2>
+              <span class="pill warn">risk</span>
+            </div>
+            <div id="trendBars" class="trend-bars"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <div id="modal" class="modal" hidden>
+      <div class="modal-panel">
+        <div class="card-title">
+          <h2 id="modalTitle">信息</h2>
+          <button id="modalCloseBtn" type="button">关闭</button>
+        </div>
+        <div id="modalBody"></div>
+      </div>
+    </div>
+  </body>
+</html>
